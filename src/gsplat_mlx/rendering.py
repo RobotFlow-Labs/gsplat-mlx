@@ -24,6 +24,7 @@ from gsplat_mlx.core.covariance import quat_scale_to_covar_preci
 from gsplat_mlx.core.intersection import isect_offset_encode, isect_tiles
 from gsplat_mlx.core.projection import fully_fused_projection
 from gsplat_mlx.core.rasterization import rasterize_to_pixels
+from gsplat_mlx.core.rasterization_mlx import rasterize_to_pixels_mlx
 from gsplat_mlx.core.spherical_harmonics import spherical_harmonics
 from gsplat_mlx.core_2dgs.projection_2dgs import fully_fused_projection_2dgs
 from gsplat_mlx.core_2dgs.rasterization_2dgs import rasterize_to_pixels_2dgs
@@ -32,14 +33,21 @@ from gsplat_mlx.core_2dgs.rasterization_2dgs import rasterize_to_pixels_2dgs
 # Type aliases
 # ---------------------------------------------------------------------------
 
-RenderMode = Literal["RGB", "D", "ED", "RGB+D", "RGB+ED"]
+RenderMode = Literal[
+    "RGB", "D", "ED", "RGB+D", "RGB+ED",
+    "d", "Ed", "RGB+d", "RGB+Ed",
+]
 """Supported rendering modes.
 
 - ``"RGB"``: Render only colour channels.
-- ``"D"``: Render accumulated depth only.
-- ``"ED"``: Render expected (normalised) depth only.
-- ``"RGB+D"``: Render colour with accumulated depth as an extra channel.
-- ``"RGB+ED"``: Render colour with expected depth as an extra channel.
+- ``"D"``: Render accumulated projection depth (z-depth) only.
+- ``"ED"``: Render expected (normalised) projection depth only.
+- ``"RGB+D"``: Render colour with accumulated projection depth as an extra channel.
+- ``"RGB+ED"``: Render colour with expected projection depth as an extra channel.
+- ``"d"``: Render accumulated hit distance (ray distance) only.
+- ``"Ed"``: Render expected (normalised) hit distance only.
+- ``"RGB+d"``: Render colour with accumulated hit distance as an extra channel.
+- ``"RGB+Ed"``: Render colour with expected hit distance as an extra channel.
 """
 
 RasterizeMode = Literal["classic", "antialiased"]
@@ -71,17 +79,17 @@ def render_mode_has_color(mode: str) -> bool:
         >>> render_mode_has_color("D")
         False
     """
-    return mode in {"RGB", "RGB+D", "RGB+ED"}
+    return mode in {"RGB", "RGB+D", "RGB+ED", "RGB+d", "RGB+Ed"}
 
 
 def render_mode_has_depth(mode: str) -> bool:
-    """Return True if the render mode includes a depth channel.
+    """Return True if the render mode includes a projection depth (z-depth) channel.
 
     Args:
         mode: A render mode string.
 
     Returns:
-        Whether the mode produces depth output.
+        Whether the mode produces projection depth output.
 
     Examples:
         >>> render_mode_has_depth("RGB+D")
@@ -93,13 +101,13 @@ def render_mode_has_depth(mode: str) -> bool:
 
 
 def render_mode_has_expected_depth(mode: str) -> bool:
-    """Return True if the render mode uses expected (normalised) depth.
+    """Return True if the render mode uses expected (normalised) depth or hit distance.
 
     Args:
         mode: A render mode string.
 
     Returns:
-        Whether the depth channel should be normalised by accumulated alpha.
+        Whether the depth/hit-distance channel should be normalised by accumulated alpha.
 
     Examples:
         >>> render_mode_has_expected_depth("ED")
@@ -107,7 +115,54 @@ def render_mode_has_expected_depth(mode: str) -> bool:
         >>> render_mode_has_expected_depth("D")
         False
     """
-    return mode in {"ED", "RGB+ED"}
+    return mode in {"ED", "RGB+ED", "Ed", "RGB+Ed"}
+
+
+def render_mode_has_hit_distance(mode: str) -> bool:
+    """Return True if the render mode includes a hit-distance channel.
+
+    Hit distance is the Euclidean (ray) distance from the camera origin
+    to each Gaussian, as opposed to projection depth which is the
+    z-component in camera space.
+
+    Args:
+        mode: A render mode string.
+
+    Returns:
+        Whether the mode produces hit-distance output.
+
+    Examples:
+        >>> render_mode_has_hit_distance("d")
+        True
+        >>> render_mode_has_hit_distance("D")
+        False
+        >>> render_mode_has_hit_distance("RGB+Ed")
+        True
+    """
+    return mode in {"d", "Ed", "RGB+d", "RGB+Ed"}
+
+
+def render_mode_has_only_depth_channel(mode: str) -> bool:
+    """Return True if the render mode produces only a depth/hit-distance channel.
+
+    These are the modes that do *not* include RGB colour, outputting only
+    a single depth or hit-distance channel.
+
+    Args:
+        mode: A render mode string.
+
+    Returns:
+        Whether the mode has only a depth/hit-distance channel (no colour).
+
+    Examples:
+        >>> render_mode_has_only_depth_channel("D")
+        True
+        >>> render_mode_has_only_depth_channel("d")
+        True
+        >>> render_mode_has_only_depth_channel("RGB+D")
+        False
+    """
+    return mode in {"D", "ED", "d", "Ed"}
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +211,7 @@ def rasterization(
     render_mode: RenderMode = "RGB",
     rasterize_mode: RasterizeMode = "classic",
     camera_model: "CameraModel" = "pinhole",
+    differentiable: bool = True,
 ) -> Tuple[mx.array, mx.array, Dict[str, Any]]:
     """Render 3D Gaussians to images.
 
@@ -188,11 +244,18 @@ def rasterization(
         tile_size: Tile side length for rasterisation. Default ``16``.
         backgrounds: Per-camera background colour. ``[C, 3]`` or ``None``.
         render_mode: One of ``"RGB"``, ``"D"``, ``"ED"``, ``"RGB+D"``,
-            ``"RGB+ED"``.  Default ``"RGB"``.
+            ``"RGB+ED"``, ``"d"``, ``"Ed"``, ``"RGB+d"``, ``"RGB+Ed"``.
+            Lowercase ``d`` modes use hit distance (ray distance) instead
+            of projection depth (z-depth).  Default ``"RGB"``.
         rasterize_mode: ``"classic"`` or ``"antialiased"``.
             Default ``"classic"``.
         camera_model: ``"pinhole"``, ``"ortho"``, or ``"fisheye"``.
             Default ``"pinhole"``.
+        differentiable: If ``True`` (default), use the Tier-2 pure-MLX
+            differentiable rasterizer that preserves the computation graph
+            for ``mx.grad()``.  If ``False``, use the Tier-1 NumPy
+            reference rasterizer (faster for validation but NOT
+            differentiable).
 
     Returns:
         A tuple ``(render_colors, render_alphas, info)``:
@@ -228,7 +291,10 @@ def rasterization(
         ... )
     """
     # ---- Input validation ----
-    valid_render_modes = {"RGB", "D", "ED", "RGB+D", "RGB+ED"}
+    valid_render_modes = {
+        "RGB", "D", "ED", "RGB+D", "RGB+ED",
+        "d", "Ed", "RGB+d", "RGB+Ed",
+    }
     if render_mode not in valid_render_modes:
         raise ValueError(
             f"Invalid render_mode '{render_mode}'. "
@@ -318,23 +384,42 @@ def rasterization(
         else:
             colors_for_raster = colors  # already [C, N, D]
 
-    # ---- Step 5: Handle depth channels ----
+    # ---- Step 5: Handle depth / hit-distance channels ----
     has_color = render_mode_has_color(render_mode)
     has_depth = render_mode_has_depth(render_mode)
+    has_hit_dist = render_mode_has_hit_distance(render_mode)
 
-    if has_color and has_depth:
-        # Append depth as extra channel: [C, N, D+1]
+    # Compute hit distances when needed: Euclidean distance from camera to
+    # each Gaussian in camera space.  means_c is [C, N, 3] and the camera
+    # origin in camera space is (0,0,0), so hit_dists = ||means_c||.
+    if has_hit_dist:
+        # Re-derive camera-space means (cheaper than modifying projection API)
+        R = viewmats[:, :3, :3]  # [C, 3, 3]
+        t = viewmats[:, :3, 3]   # [C, 3]
+        means_c = mx.einsum("cij,nj->cni", R, means) + t[:, None, :]  # [C, N, 3]
+        hit_dists = mx.sqrt(mx.sum(means_c * means_c, axis=-1))  # [C, N]
+
+    # Select the distance channel to use for rasterization
+    if has_depth:
+        dist_channel = depths  # z-depth
+    elif has_hit_dist:
+        dist_channel = hit_dists  # ray distance
+    else:
+        dist_channel = None
+
+    if has_color and dist_channel is not None:
+        # Append depth/hit-distance as extra channel: [C, N, D+1]
         colors_for_raster = mx.concatenate(
-            [colors_for_raster, depths[..., None]], axis=-1
+            [colors_for_raster, dist_channel[..., None]], axis=-1
         )
         if backgrounds is not None:
             backgrounds = mx.concatenate(
                 [backgrounds, mx.zeros((C, 1), dtype=backgrounds.dtype)],
                 axis=-1,
             )
-    elif has_depth and not has_color:
-        # Depth only: [C, N, 1]
-        colors_for_raster = depths[..., None]
+    elif dist_channel is not None and not has_color:
+        # Depth/hit-distance only: [C, N, 1]
+        colors_for_raster = dist_channel[..., None]
         if backgrounds is not None:
             backgrounds = mx.zeros((C, 1), dtype=backgrounds.dtype)
 
@@ -359,7 +444,8 @@ def rasterization(
     )  # [C, tile_height, tile_width]
 
     # ---- Step 8: Rasterise to pixels ----
-    render_colors, render_alphas = rasterize_to_pixels(
+    _rasterize_fn = rasterize_to_pixels_mlx if differentiable else rasterize_to_pixels
+    render_colors, render_alphas = _rasterize_fn(
         means2d,
         conics,
         colors_for_raster,
@@ -373,9 +459,9 @@ def rasterization(
     )
     # render_colors: [C, H, W, D], render_alphas: [C, H, W, 1]
 
-    # ---- Step 9: Post-process depth ----
+    # ---- Step 9: Post-process depth / hit-distance ----
     if render_mode_has_expected_depth(render_mode):
-        # Normalise accumulated depth by alpha to get expected depth
+        # Normalise accumulated depth/hit-distance by alpha to get expected value
         if has_color:
             # Depth is the last channel
             color_channels = render_colors[..., :-1]

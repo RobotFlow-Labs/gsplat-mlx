@@ -41,6 +41,7 @@ from gsplat_mlx.core.projection import (
     fully_fused_projection,
 )
 from gsplat_mlx.core.rasterization import rasterize_to_pixels
+from gsplat_mlx.core.rasterization_mlx import rasterize_to_pixels_mlx
 from gsplat_mlx.core.accumulate import (
     render_weight_from_alpha,
     accumulate_along_rays,
@@ -89,6 +90,7 @@ __all__ = [
     "fully_fused_projection",
     # Rasterization
     "rasterize_to_pixels",
+    "rasterize_to_pixels_mlx",
     # Accumulate / compositing
     "render_weight_from_alpha",
     "accumulate_along_rays",

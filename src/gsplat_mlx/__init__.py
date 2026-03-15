@@ -12,6 +12,10 @@ from .core.intersection import isect_tiles, isect_offset_encode
 from .core.rasterization import rasterize_to_pixels
 from .core.accumulate import accumulate
 from .core.cameras import CameraModel
+from .exporter import export_splats, log_transform, inverse_log_transform
+from .color_correct import color_correct_affine, color_correct_quadratic
+from .relocation import compute_relocation
+from .compression import PngCompression, sort_splats
 
 __all__ = [
     "__version__",
@@ -27,4 +31,12 @@ __all__ = [
     "rasterize_to_pixels",
     "accumulate",
     "CameraModel",
+    "export_splats",
+    "log_transform",
+    "inverse_log_transform",
+    "color_correct_affine",
+    "color_correct_quadratic",
+    "compute_relocation",
+    "PngCompression",
+    "sort_splats",
 ]

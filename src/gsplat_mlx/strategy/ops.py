@@ -442,3 +442,177 @@ def reset_opa(
     _update_param_with_optimizer(
         param_fn, optimizer_fn, params, optimizers, names=["opacities"]
     )
+
+
+# ---------------------------------------------------------------------------
+# sample_add (MCMC)
+# ---------------------------------------------------------------------------
+
+
+def sample_add(
+    params: Dict[str, mx.array],
+    optimizers: Dict[str, Dict[str, mx.array]],
+    state: Dict[str, mx.array],
+    n: int,
+    binoms: mx.array,
+    min_opacity: float = 0.005,
+    seed: int = 42,
+) -> None:
+    """Add ``n`` Gaussians sampled from the existing distribution (MCMC strategy).
+
+    New Gaussians are created by:
+
+    1. Sampling ``n`` existing Gaussians with probability proportional to opacity.
+    2. Using :func:`compute_relocation` to compute relocated opacities/scales for
+       the sampled Gaussians based on how many times each was sampled.
+    3. Appending duplicates of the sampled Gaussians with zeroed optimizer state.
+
+    This implements the birth process from
+    "3D Gaussian Splatting as Markov Chain Monte Carlo" (arXiv:2404.09591).
+
+    Args:
+        params: Parameter dict. Must contain ``"opacities"``, ``"scales"``.
+            Modified in-place.
+        optimizers: Optimizer state dict. Modified in-place.
+        state: Running strategy state. Modified in-place.
+        n: Number of new Gaussians to add.
+        binoms: Precomputed binomial coefficient table from
+            :func:`compute_binomial_coefficients`.
+        min_opacity: Minimum opacity for relocated Gaussians.
+        seed: Random seed for sampling.
+    """
+    from ..relocation import compute_relocation
+
+    opacities = mx.sigmoid(params["opacities"])  # [N]
+    probs = opacities.flatten()
+
+    # Multinomial sampling: use Gumbel-max trick for MLX
+    mx.random.seed(seed)
+    gumbel_noise = -mx.log(-mx.log(mx.random.uniform(shape=probs.shape) + 1e-20) + 1e-20)
+    log_probs = mx.log(probs + 1e-20) + gumbel_noise
+    # Get top-n indices (sampling with replacement approximation via repeated Gumbel)
+    # For true with-replacement sampling, we resample n times
+    sampled_idxs_list = []
+    for _ in range(n):
+        gumbel = -mx.log(-mx.log(mx.random.uniform(shape=probs.shape) + 1e-20) + 1e-20)
+        scores = mx.log(probs + 1e-20) + gumbel
+        idx = mx.argmax(scores)
+        sampled_idxs_list.append(idx)
+    sampled_idxs = mx.stack(sampled_idxs_list)  # [n]
+    mx.eval(sampled_idxs)
+
+    # Count how many times each index was sampled (bincount)
+    N = params["opacities"].shape[0]
+    counts = mx.zeros((N,), dtype=mx.int32)
+    for i in range(n):
+        idx_val = int(sampled_idxs[i].item())
+        counts = counts.at[idx_val].add(mx.array(1, dtype=mx.int32))
+    mx.eval(counts)
+
+    # Compute ratios: how many times each sampled Gaussian was picked + 1
+    ratios = counts[sampled_idxs] + 1  # [n]
+
+    # Compute relocated parameters
+    new_opacities, new_scales = compute_relocation(
+        opacities=opacities[sampled_idxs],
+        scales=mx.exp(params["scales"])[sampled_idxs],
+        ratios=ratios,
+        binoms=binoms,
+    )
+
+    eps = 1e-7
+    new_opacities = mx.clip(new_opacities, min_opacity, 1.0 - eps)
+
+    # Update the sampled Gaussians' parameters in-place
+    opa_logits = params["opacities"]
+    scale_logs = params["scales"]
+    new_opa_logits = _logit(new_opacities)
+    new_scale_logs = mx.log(new_scales)
+
+    # Replace sampled Gaussians' opacities and scales
+    for i in range(n):
+        idx_val = int(sampled_idxs[i].item())
+        opa_logits = opa_logits.at[idx_val].add(
+            new_opa_logits[i] - opa_logits[idx_val]
+        )
+        scale_logs = scale_logs.at[idx_val].add(
+            new_scale_logs[i] - scale_logs[idx_val]
+        )
+    params["opacities"] = opa_logits
+    params["scales"] = scale_logs
+
+    # Append duplicates of sampled Gaussians
+    n_sel = sampled_idxs.shape[0]
+
+    def param_fn(name: str, p: mx.array) -> mx.array:
+        return mx.concatenate([p, p[sampled_idxs]], axis=0)
+
+    def optimizer_fn(key: str, v: mx.array) -> mx.array:
+        zeros = mx.zeros((n_sel,) + v.shape[1:], dtype=v.dtype)
+        return mx.concatenate([v, zeros], axis=0)
+
+    _update_param_with_optimizer(param_fn, optimizer_fn, params, optimizers)
+
+    # Update running state
+    for k, v in state.items():
+        if isinstance(v, mx.array) and v.ndim >= 1:
+            zeros = mx.zeros((n_sel,) + v.shape[1:], dtype=v.dtype)
+            state[k] = mx.concatenate([v, zeros], axis=0)
+
+
+# ---------------------------------------------------------------------------
+# inject_noise_to_position
+# ---------------------------------------------------------------------------
+
+
+def inject_noise_to_position(
+    params: Dict[str, mx.array],
+    scaler: float = 0.01,
+    seed: Optional[int] = None,
+) -> None:
+    """Add random noise to Gaussian positions for exploration.
+
+    Noise is scaled by the Gaussian's covariance and modulated by opacity:
+    Gaussians with low opacity get more noise (encouraging exploration),
+    while near-opaque Gaussians are kept stable.
+
+    Uses a steep sigmoid ``1 / (1 + exp(-100 * (x - 0.995)))`` to gate
+    the noise by ``(1 - opacity)``.
+
+    Args:
+        params: Parameter dict. Must contain ``"means"``, ``"opacities"``,
+            ``"scales"``, ``"quats"``. The ``"means"`` entry is modified
+            in-place.
+        scaler: Overall noise scale factor.
+        seed: Random seed. If ``None``, uses MLX's current random state.
+    """
+    from ..core.covariance import quat_scale_to_covar_preci
+
+    if seed is not None:
+        mx.random.seed(seed)
+
+    opacities = mx.sigmoid(params["opacities"].flatten())  # [N]
+    scales = mx.exp(params["scales"])  # [N, 3]
+
+    covars, _ = quat_scale_to_covar_preci(
+        params["quats"],
+        scales,
+        compute_covar=True,
+        compute_preci=False,
+        triu=False,
+    )  # [N, 3, 3]
+
+    # Steep sigmoid gate: high values only when opacity is very close to 1
+    def op_sigmoid(x: mx.array, k: float = 100.0, x0: float = 0.995) -> mx.array:
+        return 1.0 / (1.0 + mx.exp(-k * (x - x0)))
+
+    noise = (
+        mx.random.normal(shape=params["means"].shape)
+        * op_sigmoid(1.0 - opacities)[:, None]
+        * scaler
+    )
+
+    # Rotate noise through covariance: covars @ noise
+    noise = mx.einsum("bij,bj->bi", covars, noise)  # [N, 3]
+
+    params["means"] = params["means"] + noise
