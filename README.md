@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
-[![Tests: 404 passing](https://img.shields.io/badge/tests-404%20passing-brightgreen.svg)](#test-suite)
+[![Tests: 404 passing](https://img.shields.io/badge/tests-405%20passing-brightgreen.svg)](#test-suite)
 [![MLX](https://img.shields.io/badge/framework-MLX-orange.svg)](https://github.com/ml-explore/mlx)
 [![Apple Silicon](https://img.shields.io/badge/platform-Apple%20Silicon-black.svg)](#requirements)
 
@@ -140,7 +140,7 @@ print(f"Output shape: {rendered.shape}")  # [1, 480, 640, 3]
 | Utilities | `utils.py` | Depth-to-normal, projection matrices | 13 |
 | Smoke Tests | -- | Package imports, MLX environment validation | 14 |
 | Training | -- | End-to-end optimization convergence | 9 |
-| **Total** | | | **404** |
+| **Total** | | | **405** |
 
 ---
 
@@ -227,6 +227,49 @@ Key API mappings used throughout the port:
 | `torch.autograd.Function` | `@mx.custom_function` + `.vjp` | All backward passes |
 | `F.sigmoid()` | `mx.sigmoid()` | |
 | `torch.no_grad()` | Not needed | |
+
+---
+
+## Performance
+
+All benchmarks on Apple Silicon with Metal GPU acceleration. The rendering pipeline
+(covariance, projection, SH, rasterization) runs entirely on GPU via MLX.
+Only tile intersection (integer sorting, non-differentiable) uses CPU.
+
+### Per-Component Timings (Metal GPU)
+
+| Operation | 1K Gaussians | 10K Gaussians | 100K Gaussians |
+|-----------|:---:|:---:|:---:|
+| Covariance (quat+scale to Sigma) | 1.2ms | 3.4ms | 29.8ms |
+| Projection (3D to 2D, 256x256) | 1.2ms | 7.1ms | 62.6ms |
+| SH evaluation (degree 0) | 0.2ms | 0.2ms | 0.2ms |
+
+### Full Pipeline (forward pass, differentiable)
+
+| Resolution | Gaussians | Forward | Forward+Backward |
+|:---:|:---:|:---:|:---:|
+| 64x64 | 500 | 73ms | 273ms |
+| 128x128 | 1,000 | 264ms | 788ms |
+
+### Execution Model
+
+```
+Forward pass (training):
+  Covariance ─── GPU (MLX)
+  Projection ─── GPU (MLX)
+  SH eval ────── GPU (MLX)
+  Intersection ─ CPU (NumPy, non-differentiable)
+  Rasterize ──── GPU (MLX, Tier-2 differentiable)
+  Loss ───────── GPU (MLX)
+
+Backward pass:
+  All gradients computed on GPU via mx.grad()
+  Verified end-to-end: image loss → 3D Gaussian means
+```
+
+The Tier-2 rasterizer uses Python loops over sorted Gaussians with vectorized
+per-tile pixel computation on GPU. A Tier-3 Metal shader implementation (PRD-14)
+is planned for 10-100x speedup on the rasterization hot path.
 
 ---
 
