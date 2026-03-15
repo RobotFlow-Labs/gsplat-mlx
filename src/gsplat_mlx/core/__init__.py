@@ -1,5 +1,9 @@
 """Core module for gsplat-mlx — constants and foundational utilities."""
 
+from gsplat_mlx.core.intersection import (
+    isect_tiles,
+    isect_offset_encode,
+)
 from gsplat_mlx.core.constants import (
     ALPHA_THRESHOLD,
     MAX_ALPHA,
@@ -29,6 +33,9 @@ from gsplat_mlx.core.math_utils import (
 )
 
 __all__ = [
+    # Intersection
+    "isect_tiles",
+    "isect_offset_encode",
     # Constants
     "ALPHA_THRESHOLD",
     "MAX_ALPHA",
