@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gsplat-mlx"
+version = "0.1.0"
+description = "3D Gaussian Splatting rasterizer ported to Apple MLX"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "AIFLOW LABS"},
+]
+keywords = ["gaussian-splatting", "mlx", "3d", "rendering", "apple-silicon"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "mlx>=0.31.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "pillow>=9.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-benchmark>=4.0",
+    "torch>=2.0",
+    "imageio>=2.20",
+    "ruff>=0.4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/AIFLOW-LABS/gsplat-mlx"
+Repository = "https://github.com/AIFLOW-LABS/gsplat-mlx"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "requires_torch: test requires PyTorch to be installed",
+    "benchmark: performance benchmark test",
+    "slow: test takes a long time to run",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
