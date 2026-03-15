@@ -151,9 +151,9 @@ def rasterization(
     sh_degree: Optional[int] = None,
     tile_size: int = 16,
     backgrounds: Optional[mx.array] = None,
-    render_mode: str = "RGB",
-    rasterize_mode: str = "classic",
-    camera_model: str = "pinhole",
+    render_mode: RenderMode = "RGB",
+    rasterize_mode: RasterizeMode = "classic",
+    camera_model: "CameraModel" = "pinhole",
 ) -> Tuple[mx.array, mx.array, Dict[str, Any]]:
     """Render 3D Gaussians to images.
 

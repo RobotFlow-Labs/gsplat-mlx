@@ -7,7 +7,6 @@ from PyTorch to Apple MLX.
 import math
 
 import mlx.core as mx
-import numpy as np
 
 
 def depth_to_points(
@@ -37,12 +36,11 @@ def depth_to_points(
     cx = Ks[..., 0, 2]
     cy = Ks[..., 1, 2]
 
-    # Pixel grids
-    x_coords = np.arange(W, dtype=np.float32)
-    y_coords = np.arange(H, dtype=np.float32)
-    grid_x, grid_y = np.meshgrid(x_coords, y_coords, indexing="xy")
-    grid_x = mx.array(grid_x)  # [H, W]
-    grid_y = mx.array(grid_y)  # [H, W]
+    # Pixel grids (pure MLX — no NumPy detour)
+    x_coords = mx.arange(W).astype(mx.float32)  # [W]
+    y_coords = mx.arange(H).astype(mx.float32)  # [H]
+    grid_x = mx.broadcast_to(mx.expand_dims(x_coords, 0), (H, W))  # [H, W]
+    grid_y = mx.broadcast_to(mx.expand_dims(y_coords, 1), (H, W))  # [H, W]
 
     # Build camera directions: (u - cx + 0.5) / fx, (v - cy + 0.5) / fy, 1
     # Expand intrinsics for broadcasting
@@ -115,13 +113,9 @@ def depth_to_normal(
     normals_inner = normals_inner / mx.maximum(norm, mx.array(1e-8))
 
     # Pad with zeros to restore original spatial size
-    batch_shape = normals_inner.shape[:-3]
-    H, W = depths.shape[-3], depths.shape[-2]
-    H_inner, W_inner = normals_inner.shape[-3], normals_inner.shape[-2]
-
-    normals = mx.zeros(batch_shape + (H, W, 3), dtype=normals_inner.dtype)
-    # Place inner normals at [1:-1, 1:-1]
-    normals = normals.at[..., 1:-1, 1:-1, :].add(normals_inner)
+    n_batch = len(normals_inner.shape) - 3
+    pad_widths = [(0, 0)] * n_batch + [(1, 1), (1, 1), (0, 0)]
+    normals = mx.pad(normals_inner, pad_widths)
 
     return normals
 
@@ -156,15 +150,12 @@ def get_projection_matrix(
     right = tan_half_fovX * znear
     left = -right
 
-    P = np.zeros((4, 4), dtype=np.float32)
     z_sign = 1.0
+    P = mx.array([
+        [2.0 * znear / (right - left), 0.0, (right + left) / (right - left), 0.0],
+        [0.0, 2.0 * znear / (top - bottom), (top + bottom) / (top - bottom), 0.0],
+        [0.0, 0.0, z_sign * zfar / (zfar - znear), -(zfar * znear) / (zfar - znear)],
+        [0.0, 0.0, z_sign, 0.0],
+    ])
 
-    P[0, 0] = 2.0 * znear / (right - left)
-    P[1, 1] = 2.0 * znear / (top - bottom)
-    P[0, 2] = (right + left) / (right - left)
-    P[1, 2] = (top + bottom) / (top - bottom)
-    P[3, 2] = z_sign
-    P[2, 2] = z_sign * zfar / (zfar - znear)
-    P[2, 3] = -(zfar * znear) / (zfar - znear)
-
-    return mx.array(P)
+    return P
