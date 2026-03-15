@@ -11,6 +11,14 @@
 > Port of [nerfstudio-project/gsplat](https://github.com/nerfstudio-project/gsplat) from CUDA/PyTorch to Apple [MLX](https://github.com/ml-explore/mlx).
 > Built by [AIFLOW LABS](https://aiflowlabs.io) / [RobotFlow Labs](https://robotflowlabs.com)
 
+```
+ Source     33 files    6,815 lines    100% GPU (Metal) differentiable pipeline
+ Tests      25 files    8,799 lines    405 tests passing in 2.8s
+ Examples    7 files    1,528 lines    6 standalone demos + CLI trainer
+ PRDs       14 files   18,067 lines    Complete porting specification
+ Commits    10          3 code reviews  All critical/high issues resolved
+```
+
 ---
 
 ## Why gsplat-mlx?
@@ -304,7 +312,7 @@ is planned for 10-100x speedup on the rasterization hot path.
 
 ## Test Suite
 
-404 tests covering forward correctness, backward VJP validation, edge cases, and end-to-end training convergence.
+405 tests covering forward correctness, backward VJP validation, edge cases, and end-to-end training convergence.
 
 ```bash
 # Run all tests
@@ -338,13 +346,13 @@ gsplat-mlx/
       spherical_harmonics.py    # SH evaluation (degrees 0-4)
       projection.py             # 3D->2D Gaussian projection
       intersection.py           # Tile-Gaussian intersection + depth sort
-      rasterization.py          # Per-pixel alpha compositing
+      rasterization.py          # Per-pixel alpha compositing (Tier-1 reference)
+      rasterization_mlx.py      # Differentiable GPU rasterizer (Tier-2)
       accumulate.py             # Differentiable compositing
       cameras.py                # Camera models (pinhole, fisheye, ortho)
     core_2dgs/
       projection_2dgs.py        # 2DGS surfel projection
       rasterization_2dgs.py     # 2DGS rasterization
-      accumulate_2dgs.py        # 2DGS compositing
     strategy/
       base.py                   # Abstract densification strategy
       default.py                # Clone / split / prune
@@ -354,7 +362,11 @@ gsplat-mlx/
     compression/
       png_compression.py        # Model compression
       sort.py                   # Morton sort
-  tests/                        # 404 tests
+    exporter.py                 # PLY / .splat export
+    color_correct.py            # Affine / quadratic color correction
+    relocation.py               # MCMC Gaussian relocation
+    scenes.py                   # Synthetic scene generators
+  tests/                        # 405 tests
   prds/                         # 14 Product Requirements Documents
 ```
 
