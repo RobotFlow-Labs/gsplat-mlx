@@ -21,6 +21,8 @@ from typing import Callable, Dict, List, Optional
 
 import mlx.core as mx
 
+from gsplat_mlx.core.math_utils import _quat_to_rotmat
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -41,39 +43,6 @@ def _logit(x: mx.array) -> mx.array:
     eps = 1e-7
     x = mx.clip(x, eps, 1.0 - eps)
     return mx.log(x / (1.0 - x))
-
-
-def _normalized_quat_to_rotmat(quat: mx.array) -> mx.array:
-    """Convert normalized quaternion (wxyz) to rotation matrix.
-
-    Args:
-        quat: ``[..., 4]`` quaternion in ``(w, x, y, z)`` convention.
-            Must already be normalized.
-
-    Returns:
-        Rotation matrix ``[..., 3, 3]``.
-    """
-    w = quat[..., 0]
-    x = quat[..., 1]
-    y = quat[..., 2]
-    z = quat[..., 3]
-
-    mat = mx.stack(
-        [
-            1 - 2 * (y**2 + z**2),
-            2 * (x * y - w * z),
-            2 * (x * z + w * y),
-            2 * (x * y + w * z),
-            1 - 2 * (x**2 + z**2),
-            2 * (y * z - w * x),
-            2 * (x * z - w * y),
-            2 * (y * z + w * x),
-            1 - 2 * (x**2 + y**2),
-        ],
-        axis=-1,
-    )
-
-    return mat.reshape(quat.shape[:-1] + (3, 3))
 
 
 def _mask_to_indices(mask: mx.array) -> mx.array:
@@ -345,7 +314,7 @@ def split(
     quats = quats / quat_norms
 
     # Build rotation matrices: [n_sel, 3, 3]
-    rotmats = _normalized_quat_to_rotmat(quats)
+    rotmats = _quat_to_rotmat(quats)
 
     # Sample 2 random offsets per Gaussian: [2, n_sel, 3]
     noise = mx.random.normal(shape=(2, n_sel, 3))

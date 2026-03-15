@@ -8,22 +8,7 @@ import math
 
 import mlx.core as mx
 
-
-def _cross(a: mx.array, b: mx.array) -> mx.array:
-    """Cross product of two arrays along the last axis (size 3).
-
-    MLX (as of 0.31) does not provide ``mx.cross``, so we implement it
-    manually using the standard formula:
-        (a1*b2 - a2*b1, a2*b0 - a0*b2, a0*b1 - a1*b0)
-    """
-    return mx.stack(
-        [
-            a[..., 1] * b[..., 2] - a[..., 2] * b[..., 1],
-            a[..., 2] * b[..., 0] - a[..., 0] * b[..., 2],
-            a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0],
-        ],
-        axis=-1,
-    )
+from gsplat_mlx.core.math_utils import _cross
 
 
 def depth_to_points(

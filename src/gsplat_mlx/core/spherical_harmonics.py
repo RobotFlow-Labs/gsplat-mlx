@@ -198,6 +198,9 @@ def _make_sh_fn(degrees_to_use: int):
     return _sh
 
 
+_SH_FN_CACHE = {}
+
+
 def spherical_harmonics(
     degrees_to_use: int, dirs: mx.array, coeffs: mx.array
 ) -> mx.array:
@@ -219,5 +222,6 @@ def spherical_harmonics(
         f"coeffs has {coeffs.shape[-2]} bases but degree {degrees_to_use} "
         f"requires {(degrees_to_use + 1) ** 2}"
     )
-    sh_fn = _make_sh_fn(degrees_to_use)
-    return sh_fn(dirs, coeffs)
+    if degrees_to_use not in _SH_FN_CACHE:
+        _SH_FN_CACHE[degrees_to_use] = _make_sh_fn(degrees_to_use)
+    return _SH_FN_CACHE[degrees_to_use](dirs, coeffs)

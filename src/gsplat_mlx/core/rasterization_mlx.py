@@ -207,6 +207,12 @@ def rasterize_to_pixels_mlx(
                     # Mask: alpha must be >= ALPHA_THRESHOLD
                     alpha = mx.where(alpha >= ALPHA_THRESHOLD, alpha, mx.zeros_like(alpha))
 
+                    # Early termination: zero out alpha for saturated pixels
+                    # (transmittance near zero). Using mx.where preserves
+                    # differentiability -- do NOT call mx.eval() on any
+                    # differentiable arrays in this loop.
+                    alpha = mx.where(tile_T >= TRANSMITTANCE_THRESHOLD, alpha, mx.zeros_like(alpha))
+
                     # Compositing
                     weight = tile_T * alpha                    # [th, tw]
                     tile_accum = tile_accum + weight[:, :, None] * col  # broadcast col over [th, tw]

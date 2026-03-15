@@ -670,62 +670,9 @@ def _quat_scale_to_covar_preci(
     compute_preci: bool = True,
     triu: bool = False,
 ) -> Tuple[Optional[mx.array], Optional[mx.array]]:
-    """Compute covariance and/or precision matrices from quaternion and scale.
-
-    covar = R * S * S^T * R^T = M * M^T  where M = R * diag(s)
-    preci = R * (1/S) * (1/S)^T * R^T = P * P^T  where P = R * diag(1/s)
-
-    Args:
-        quats: [..., 4] quaternion
-        scales: [..., 3] scale factors
-        compute_covar: Whether to compute covariance matrix
-        compute_preci: Whether to compute precision matrix
-        triu: If True, return upper triangular (6 elements) instead of full 3x3
-
-    Returns:
-        Tuple of (covars, precis) — either can be None if not requested
-    """
-    batch_dims = quats.shape[:-1]
-    assert quats.shape == batch_dims + (4,), quats.shape
-    assert scales.shape == batch_dims + (3,), scales.shape
-
-    R = _quat_to_rotmat(quats)  # [..., 3, 3]
-
-    covars = None
-    precis = None
-
-    if compute_covar:
-        M = R * mx.expand_dims(scales, axis=-2)  # [..., 3, 3]
-        covars = mx.einsum("...ij,...kj->...ik", M, M)  # [..., 3, 3]
-        if triu:
-            covars_flat = mx.reshape(covars, batch_dims + (9,))
-            # Indices [0,1,2,4,5,8] and [0,3,6,4,7,8]
-            upper = mx.stack([
-                covars_flat[..., 0], covars_flat[..., 1], covars_flat[..., 2],
-                covars_flat[..., 4], covars_flat[..., 5], covars_flat[..., 8],
-            ], axis=-1)
-            lower = mx.stack([
-                covars_flat[..., 0], covars_flat[..., 3], covars_flat[..., 6],
-                covars_flat[..., 4], covars_flat[..., 7], covars_flat[..., 8],
-            ], axis=-1)
-            covars = (upper + lower) / 2.0
-
-    if compute_preci:
-        P = R * (1.0 / mx.expand_dims(scales, axis=-2))  # [..., 3, 3]
-        precis = mx.einsum("...ij,...kj->...ik", P, P)  # [..., 3, 3]
-        if triu:
-            precis_flat = mx.reshape(precis, batch_dims + (9,))
-            upper = mx.stack([
-                precis_flat[..., 0], precis_flat[..., 1], precis_flat[..., 2],
-                precis_flat[..., 4], precis_flat[..., 5], precis_flat[..., 8],
-            ], axis=-1)
-            lower = mx.stack([
-                precis_flat[..., 0], precis_flat[..., 3], precis_flat[..., 6],
-                precis_flat[..., 4], precis_flat[..., 7], precis_flat[..., 8],
-            ], axis=-1)
-            precis = (upper + lower) / 2.0
-
-    return covars, precis
+    """Convenience wrapper. Canonical implementation in covariance.py."""
+    from gsplat_mlx.core.covariance import quat_scale_to_covar_preci
+    return quat_scale_to_covar_preci(quats, scales, compute_covar, compute_preci, triu)
 
 
 def _quat_scale_to_preci_half(quats: mx.array, scales: mx.array) -> mx.array:

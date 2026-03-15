@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
-[![Tests: 312 passing](https://img.shields.io/badge/tests-312%20passing-brightgreen.svg)](#test-suite)
+[![Tests: 404 passing](https://img.shields.io/badge/tests-404%20passing-brightgreen.svg)](#test-suite)
 [![MLX](https://img.shields.io/badge/framework-MLX-orange.svg)](https://github.com/ml-explore/mlx)
 [![Apple Silicon](https://img.shields.io/badge/platform-Apple%20Silicon-black.svg)](#requirements)
 
@@ -140,7 +140,7 @@ print(f"Output shape: {rendered.shape}")  # [1, 480, 640, 3]
 | Utilities | `utils.py` | Depth-to-normal, projection matrices | 13 |
 | Smoke Tests | -- | Package imports, MLX environment validation | 14 |
 | Training | -- | End-to-end optimization convergence | 9 |
-| **Total** | | | **312** |
+| **Total** | | | **404** |
 
 ---
 
@@ -261,7 +261,7 @@ Key API mappings used throughout the port:
 
 ## Test Suite
 
-312 tests covering forward correctness, backward VJP validation, edge cases, and end-to-end training convergence.
+404 tests covering forward correctness, backward VJP validation, edge cases, and end-to-end training convergence.
 
 ```bash
 # Run all tests
@@ -311,7 +311,7 @@ gsplat-mlx/
     compression/
       png_compression.py        # Model compression
       sort.py                   # Morton sort
-  tests/                        # 312 tests
+  tests/                        # 404 tests
   prds/                         # 14 Product Requirements Documents
 ```
 

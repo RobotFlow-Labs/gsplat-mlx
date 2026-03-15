@@ -584,3 +584,40 @@ class TestRenderModeHelpers:
         assert render_mode_has_expected_depth("RGB+ED") is True
         assert render_mode_has_expected_depth("D") is False
         assert render_mode_has_expected_depth("RGB+D") is False
+
+
+class TestEndToEndGradient:
+    """End-to-end gradient flow through the full rasterization pipeline."""
+
+    def test_end_to_end_gradient_flow(self):
+        """Verify mx.grad flows through the ENTIRE rasterization pipeline."""
+        N = 50
+        # Place Gaussians in a cluster in front of the camera
+        mx.random.seed(123)
+        means = mx.random.uniform(-0.5, 0.5, (N, 3))
+        # Ensure positive z (in front of camera looking down -z at origin)
+        means_np = np.array(means)
+        means_np[:, 2] = np.abs(means_np[:, 2]) + 2.0
+        means = mx.array(means_np)
+
+        quats = mx.concatenate([mx.ones((N, 1)), mx.zeros((N, 3))], axis=1)
+        scales = mx.full((N, 3), 0.3)  # Larger Gaussians for visibility
+        opacities = mx.ones(N) * 0.9
+        colors = mx.random.uniform(0, 1, (N, 1, 3))
+
+        K = mx.array([[50, 0, 32], [0, 50, 32], [0, 0, 1]], dtype=mx.float32)
+        viewmat = mx.eye(4)
+
+        def loss_fn(means_):
+            imgs, alphas, info = rasterization(
+                means_, quats, scales, opacities, colors,
+                viewmat[None], K[None], width=64, height=64,
+                sh_degree=0, differentiable=True,
+            )
+            return mx.sum(imgs)
+
+        grad = mx.grad(loss_fn)(means)
+        mx.eval(grad)
+        grad_np = np.array(grad)
+        assert not np.any(np.isnan(grad_np)), "NaN in gradient"
+        assert np.any(grad_np != 0), "All-zero gradient"
