@@ -9,6 +9,23 @@ import math
 import mlx.core as mx
 
 
+def _cross(a: mx.array, b: mx.array) -> mx.array:
+    """Cross product of two arrays along the last axis (size 3).
+
+    MLX (as of 0.31) does not provide ``mx.cross``, so we implement it
+    manually using the standard formula:
+        (a1*b2 - a2*b1, a2*b0 - a0*b2, a0*b1 - a1*b0)
+    """
+    return mx.stack(
+        [
+            a[..., 1] * b[..., 2] - a[..., 2] * b[..., 1],
+            a[..., 2] * b[..., 0] - a[..., 0] * b[..., 2],
+            a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0],
+        ],
+        axis=-1,
+    )
+
+
 def depth_to_points(
     depths: mx.array,
     camtoworlds: mx.array,
@@ -106,7 +123,7 @@ def depth_to_normal(
     dy = points[..., 1:-1, 2:, :] - points[..., 1:-1, :-2, :]  # [..., H-2, W-2, 3]
 
     # Cross product
-    normals_inner = mx.cross(dx, dy)  # [..., H-2, W-2, 3]
+    normals_inner = _cross(dx, dy)  # [..., H-2, W-2, 3]
 
     # Normalise
     norm = mx.sqrt(mx.sum(normals_inner * normals_inner, axis=-1, keepdims=True))

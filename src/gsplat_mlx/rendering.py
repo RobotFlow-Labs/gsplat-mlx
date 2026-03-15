@@ -25,6 +25,8 @@ from gsplat_mlx.core.intersection import isect_offset_encode, isect_tiles
 from gsplat_mlx.core.projection import fully_fused_projection
 from gsplat_mlx.core.rasterization import rasterize_to_pixels
 from gsplat_mlx.core.spherical_harmonics import spherical_harmonics
+from gsplat_mlx.core_2dgs.projection_2dgs import fully_fused_projection_2dgs
+from gsplat_mlx.core_2dgs.rasterization_2dgs import rasterize_to_pixels_2dgs
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -400,3 +402,157 @@ def rasterization(
     }
 
     return render_colors, render_alphas, info
+
+
+# ---------------------------------------------------------------------------
+# 2D Gaussian Splatting (surfel) rendering entry point
+# ---------------------------------------------------------------------------
+
+
+def rasterization_2dgs(
+    means: mx.array,
+    quats: mx.array,
+    scales: mx.array,
+    opacities: mx.array,
+    colors: mx.array,
+    viewmats: mx.array,
+    Ks: mx.array,
+    width: int,
+    height: int,
+    near_plane: float = 0.01,
+    far_plane: float = 1e10,
+    tile_size: int = 16,
+    backgrounds: Optional[mx.array] = None,
+    sh_degree: Optional[int] = None,
+) -> Tuple[mx.array, mx.array, mx.array, Dict[str, Any]]:
+    """Render 2D Gaussian surfels to images.
+
+    High-level entry point for 2D Gaussian Splatting. Orchestrates:
+
+    1. Surfel projection (ray-transform matrices, normals, screen bounds)
+    2. Optional spherical harmonics evaluation for view-dependent colour
+    3. Tile-surfel intersection and depth sorting
+    4. Per-pixel rasterization with normal accumulation
+
+    Args:
+        means: 3D surfel centres. Shape ``[N, 3]``.
+        quats: Quaternion orientations ``(w, x, y, z)``. Shape ``[N, 4]``.
+        scales: Scale factors. Shape ``[N, 3]``.
+        opacities: Per-surfel opacity in ``[0, 1]``. Shape ``[N]``.
+        colors: Either SH coefficients ``[N, K, 3]`` (when ``sh_degree``
+            is not ``None``) or direct RGB values ``[C, N, 3]`` (when
+            ``sh_degree is None``).
+        viewmats: World-to-camera matrices. ``[C, 4, 4]``.
+        Ks: Camera intrinsic matrices. ``[C, 3, 3]``.
+        width: Image width in pixels.
+        height: Image height in pixels.
+        near_plane: Near clipping plane distance. Default ``0.01``.
+        far_plane: Far clipping plane distance. Default ``1e10``.
+        tile_size: Tile side length for rasterisation. Default ``16``.
+        backgrounds: Per-camera background colour. ``[C, 3]`` or ``None``.
+        sh_degree: SH degree to activate. ``None`` means direct colour mode.
+
+    Returns:
+        A tuple ``(render_colors, render_alphas, render_normals, info)``:
+
+        - **render_colors**: Rendered colour images. ``[C, H, W, channels]``.
+        - **render_alphas**: Accumulated opacity. ``[C, H, W, 1]``.
+        - **render_normals**: Accumulated normal map. ``[C, H, W, 3]``.
+        - **info**: Dictionary of intermediate results for debugging.
+    """
+    N = means.shape[0]
+    C = viewmats.shape[0]
+
+    # ---- Step 1: Surfel projection ----
+    radii, means2d, depths, ray_transforms, normals = (
+        fully_fused_projection_2dgs(
+            means,
+            quats,
+            scales,
+            viewmats,
+            Ks,
+            width,
+            height,
+            near_plane=near_plane,
+            far_plane=far_plane,
+        )
+    )
+
+    # ---- Step 2: Opacities (broadcast to [C, N]) ----
+    opacities_cn = mx.broadcast_to(
+        mx.expand_dims(opacities, axis=0), (C, N)
+    )
+
+    # ---- Step 3: Colour computation ----
+    if sh_degree is not None:
+        campos = _viewmat_to_campos(viewmats)
+        dirs = means[None, :, :] - campos[:, None, :]
+        dirs_norm = mx.sqrt(mx.sum(dirs * dirs, axis=-1, keepdims=True))
+        dirs = dirs / mx.maximum(dirs_norm, mx.array(1e-8))
+
+        coeffs_broadcast = mx.broadcast_to(
+            mx.expand_dims(colors, axis=0),
+            (C, N, colors.shape[-2], 3),
+        )
+        rgb = spherical_harmonics(sh_degree, dirs, coeffs_broadcast)
+        rgb = mx.maximum(rgb + 0.5, 0.0)
+        colors_for_raster = rgb
+    else:
+        if colors.ndim == 2:
+            colors_for_raster = mx.broadcast_to(
+                mx.expand_dims(colors, axis=0), (C, N, colors.shape[-1])
+            )
+        else:
+            colors_for_raster = colors
+
+    # ---- Step 4: Tile-surfel intersection ----
+    tile_width = math.ceil(width / float(tile_size))
+    tile_height = math.ceil(height / float(tile_size))
+
+    tiles_per_gauss, isect_ids, flatten_ids = isect_tiles(
+        means2d,
+        radii,
+        depths,
+        tile_size,
+        tile_width,
+        tile_height,
+        sort=True,
+    )
+
+    # ---- Step 5: Offset encoding ----
+    isect_offsets = isect_offset_encode(
+        isect_ids, C, tile_width, tile_height,
+    )
+
+    # ---- Step 6: Rasterise to pixels ----
+    render_colors, render_alphas, render_normals = rasterize_to_pixels_2dgs(
+        means2d,
+        ray_transforms,
+        colors_for_raster,
+        normals,
+        opacities_cn,
+        width,
+        height,
+        tile_size,
+        isect_offsets,
+        flatten_ids,
+        backgrounds=backgrounds,
+    )
+
+    # ---- Step 7: Build info dict ----
+    info: Dict[str, Any] = {
+        "means2d": means2d,
+        "depths": depths,
+        "radii": radii,
+        "ray_transforms": ray_transforms,
+        "normals": normals,
+        "width": width,
+        "height": height,
+        "tile_size": tile_size,
+        "n_cameras": C,
+        "tiles_per_gauss": tiles_per_gauss,
+        "isect_offsets": isect_offsets,
+        "flatten_ids": flatten_ids,
+    }
+
+    return render_colors, render_alphas, render_normals, info
