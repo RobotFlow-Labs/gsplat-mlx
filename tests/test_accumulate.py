@@ -566,3 +566,151 @@ class TestAccumulate:
         np.testing.assert_allclose(
             float(np.array(renders[1, 1, 1, 0])), 1.0, atol=1e-4
         )
+
+
+# ===================================================================
+# Gradient tests
+# ===================================================================
+
+
+class TestGradients:
+    """Gradient / autodiff tests for accumulate functions."""
+
+    def test_gradient_render_weight_alpha(self):
+        """Verify mx.grad flows through render_weight_from_alpha."""
+        from gsplat_mlx.core.accumulate import render_weight_from_alpha
+
+        alphas = mx.array([0.5, 0.3, 0.8])
+        ray_indices = mx.array([0, 0, 0], dtype=mx.int32)
+
+        def loss_fn(a):
+            weights, _ = render_weight_from_alpha(a, ray_indices, n_rays=1)
+            return mx.sum(weights)
+
+        grad_fn = mx.grad(loss_fn)
+        g = grad_fn(alphas)
+        mx.eval(g)
+
+        g_np = np.array(g)
+        assert g_np.shape == (3,)
+        # Gradients should be non-zero: changing alpha affects weights
+        assert np.any(np.abs(g_np) > 1e-6), (
+            f"Expected non-zero gradients, got {g_np}"
+        )
+
+        # Verify via finite differences
+        eps = 1e-4
+        alphas_np = np.array([0.5, 0.3, 0.8], dtype=np.float32)
+        g_numerical = np.zeros(3, dtype=np.float32)
+        for i in range(3):
+            a_plus = alphas_np.copy()
+            a_minus = alphas_np.copy()
+            a_plus[i] += eps
+            a_minus[i] -= eps
+            w_plus, _ = render_weight_from_alpha(
+                mx.array(a_plus), ray_indices, n_rays=1
+            )
+            w_minus, _ = render_weight_from_alpha(
+                mx.array(a_minus), ray_indices, n_rays=1
+            )
+            mx.eval(w_plus, w_minus)
+            g_numerical[i] = (float(mx.sum(w_plus)) - float(mx.sum(w_minus))) / (
+                2 * eps
+            )
+
+        np.testing.assert_allclose(g_np, g_numerical, atol=1e-3, rtol=1e-2)
+
+    def test_gradient_accumulate_colors(self):
+        """Gradient of accumulated colors w.r.t. input colors."""
+        from gsplat_mlx.core.accumulate import accumulate
+
+        H, W, C = 4, 4, 3
+        means2d = mx.array([[[2.5, 2.5]]])
+        conics = mx.array([[[1.0, 0.0, 1.0]]])
+        opacities = mx.array([[0.8]])
+
+        gaussian_ids = mx.array([0], dtype=mx.int32)
+        pixel_ids = mx.array([2 * W + 2], dtype=mx.int32)
+        image_ids = mx.array([0], dtype=mx.int32)
+
+        def loss_fn(colors):
+            renders, _ = accumulate(
+                means2d, conics, opacities, colors,
+                gaussian_ids, pixel_ids, image_ids, W, H,
+            )
+            return mx.sum(renders)
+
+        colors = mx.array([[[1.0, 0.0, 0.0]]])
+        grad_fn = mx.grad(loss_fn)
+        g = grad_fn(colors)
+        mx.eval(g)
+
+        g_np = np.array(g)
+        assert g_np.shape == (1, 1, 3)
+        # Gradient w.r.t. colors should be non-zero (the weight applied to colors)
+        assert np.any(np.abs(g_np) > 1e-6), (
+            f"Expected non-zero gradients for colors, got {g_np}"
+        )
+
+    def test_gradient_accumulate_opacities(self):
+        """Gradient w.r.t. opacities flows through accumulate."""
+        from gsplat_mlx.core.accumulate import accumulate
+
+        H, W, C = 4, 4, 3
+        means2d = mx.array([[[2.5, 2.5]]])
+        conics = mx.array([[[1.0, 0.0, 1.0]]])
+        colors = mx.array([[[1.0, 0.5, 0.25]]])
+
+        gaussian_ids = mx.array([0], dtype=mx.int32)
+        pixel_ids = mx.array([2 * W + 2], dtype=mx.int32)
+        image_ids = mx.array([0], dtype=mx.int32)
+
+        def loss_fn(opac):
+            renders, _ = accumulate(
+                means2d, conics, opac, colors,
+                gaussian_ids, pixel_ids, image_ids, W, H,
+            )
+            return mx.sum(renders)
+
+        opacities = mx.array([[0.8]])
+        grad_fn = mx.grad(loss_fn)
+        g = grad_fn(opacities)
+        mx.eval(g)
+
+        g_np = np.array(g)
+        assert g_np.shape == (1, 1)
+        assert np.any(np.abs(g_np) > 1e-6), (
+            f"Expected non-zero gradients for opacities, got {g_np}"
+        )
+
+    def test_gradient_accumulate_means2d(self):
+        """Gradient w.r.t. means2d positions flows through accumulate."""
+        from gsplat_mlx.core.accumulate import accumulate
+
+        H, W, C = 4, 4, 3
+        conics = mx.array([[[1.0, 0.0, 1.0]]])
+        opacities = mx.array([[0.8]])
+        colors = mx.array([[[1.0, 0.5, 0.25]]])
+
+        gaussian_ids = mx.array([0], dtype=mx.int32)
+        # Use an off-center pixel so sigma != 0 and gradient is non-zero
+        pixel_ids = mx.array([1 * W + 1], dtype=mx.int32)
+        image_ids = mx.array([0], dtype=mx.int32)
+
+        def loss_fn(m2d):
+            renders, _ = accumulate(
+                m2d, conics, opacities, colors,
+                gaussian_ids, pixel_ids, image_ids, W, H,
+            )
+            return mx.sum(renders)
+
+        means2d = mx.array([[[2.5, 2.5]]])
+        grad_fn = mx.grad(loss_fn)
+        g = grad_fn(means2d)
+        mx.eval(g)
+
+        g_np = np.array(g)
+        assert g_np.shape == (1, 1, 2)
+        assert np.any(np.abs(g_np) > 1e-6), (
+            f"Expected non-zero gradients for means2d, got {g_np}"
+        )

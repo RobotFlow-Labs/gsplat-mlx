@@ -7,7 +7,6 @@ and complete quaternion algebra (normalize, rotate, multiply, slerp, convert).
 Upstream reference: repositories/gsplat-upstream/gsplat/cuda/_math.py
 """
 
-import numpy as np
 import mlx.core as mx
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple
@@ -24,7 +23,7 @@ def _assert_shape(name: str, arr: mx.array, shape: tuple):
     Args:
         name: Name of the array (for error messages).
         arr: The MLX array to check.
-        shape: Expected shape tuple. Use -1 for dimensions that can be any size.
+        shape: Expected shape tuple. Must match exactly.
     """
     if arr.shape != shape:
         raise ValueError(
@@ -767,6 +766,8 @@ def compute_inverse_polynomial(forward_poly_coeffs, input_range, num_samples=100
         ValueError: If forward polynomial produces invalid values or if inverse
                    accuracy is insufficient (max error > 0.1% of range)
     """
+    import numpy as np
+
     # Sample uniformly across input range
     x_samples = np.linspace(
         input_range[0], input_range[1], num_samples, dtype=np.float64

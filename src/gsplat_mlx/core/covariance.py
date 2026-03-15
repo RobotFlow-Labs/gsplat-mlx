@@ -10,45 +10,7 @@ See PRD-03 for details.
 import mlx.core as mx
 from typing import Optional, Tuple
 
-
-# ---------------------------------------------------------------------------
-# TODO(PRD-02): Remove this local copy once math_utils.py lands from PRD-02.
-#   Import instead:  from gsplat_mlx.core.math_utils import _quat_to_rotmat
-# ---------------------------------------------------------------------------
-
-def _quat_to_rotmat(quats: mx.array) -> mx.array:
-    """Convert quaternion to 3x3 rotation matrix.
-
-    Args:
-        quats: Quaternions of shape ``[..., 4]`` (w, x, y, z convention).
-               They will be normalised internally.
-
-    Returns:
-        Rotation matrices of shape ``[..., 3, 3]``.
-    """
-    # Normalize quaternion
-    quats = quats / mx.sqrt(mx.sum(quats * quats, axis=-1, keepdims=True) + 1e-12)
-
-    w = quats[..., 0]
-    x = quats[..., 1]
-    y = quats[..., 2]
-    z = quats[..., 3]
-
-    R = mx.stack(
-        [
-            1 - 2 * (y ** 2 + z ** 2),
-            2 * (x * y - w * z),
-            2 * (x * z + w * y),
-            2 * (x * y + w * z),
-            1 - 2 * (x ** 2 + z ** 2),
-            2 * (y * z - w * x),
-            2 * (x * z - w * y),
-            2 * (y * z + w * x),
-            1 - 2 * (x ** 2 + y ** 2),
-        ],
-        axis=-1,
-    )
-    return R.reshape(quats.shape[:-1] + (3, 3))
+from gsplat_mlx.core.math_utils import _quat_to_rotmat
 
 
 # ---------------------------------------------------------------------------

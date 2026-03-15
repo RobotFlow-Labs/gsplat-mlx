@@ -16,7 +16,6 @@ import math
 from typing import Tuple
 
 import mlx.core as mx
-import numpy as np
 
 from gsplat_mlx.core.constants import MAX_ALPHA
 
@@ -72,9 +71,9 @@ def render_weight_from_alpha(
     # We subtract the boundary's cumsum value from the whole segment.
     segment_ids = mx.cumsum(is_start.astype(mx.int32)) - 1  # [M]
 
-    # Evaluate to get n_segments for array creation
-    mx.eval(segment_ids)
-    n_segments = int(mx.max(segment_ids).item()) + 1 if M > 0 else 0
+    # Use n_rays as upper bound for segment count to avoid breaking
+    # the lazy computation graph with mx.eval / .item() calls.
+    n_segments = n_rays
 
     start_mask = is_start.astype(mx.float32)  # 1.0 at starts
     corrections_compact = mx.zeros(n_segments, dtype=mx.float32)

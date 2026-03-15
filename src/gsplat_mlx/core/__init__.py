@@ -31,6 +31,22 @@ from gsplat_mlx.core.math_utils import (
     _quat_scale_to_preci_half,
     compute_inverse_polynomial,
 )
+from gsplat_mlx.core.covariance import quat_scale_to_covar_preci
+from gsplat_mlx.core.spherical_harmonics import spherical_harmonics
+from gsplat_mlx.core.projection import (
+    world_to_cam,
+    persp_proj,
+    fisheye_proj,
+    ortho_proj,
+    fully_fused_projection,
+)
+from gsplat_mlx.core.rasterization import rasterize_to_pixels
+from gsplat_mlx.core.accumulate import (
+    render_weight_from_alpha,
+    accumulate_along_rays,
+    accumulate,
+)
+from gsplat_mlx.core.cameras import CameraModel
 
 __all__ = [
     # Intersection
@@ -61,4 +77,22 @@ __all__ = [
     "_quat_scale_to_covar_preci",
     "_quat_scale_to_preci_half",
     "compute_inverse_polynomial",
+    # Covariance (public API)
+    "quat_scale_to_covar_preci",
+    # Spherical harmonics
+    "spherical_harmonics",
+    # Projection
+    "world_to_cam",
+    "persp_proj",
+    "fisheye_proj",
+    "ortho_proj",
+    "fully_fused_projection",
+    # Rasterization
+    "rasterize_to_pixels",
+    # Accumulate / compositing
+    "render_weight_from_alpha",
+    "accumulate_along_rays",
+    "accumulate",
+    # Cameras
+    "CameraModel",
 ]

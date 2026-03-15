@@ -48,6 +48,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 markers = [
     "requires_torch: test requires PyTorch to be installed",
     "benchmark: performance benchmark test",

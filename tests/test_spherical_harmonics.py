@@ -16,12 +16,6 @@ import mlx.core as mx
 import numpy as np
 import pytest
 
-import sys
-import os
-
-# Make conftest importable
-sys.path.insert(0, os.path.dirname(__file__))
-
 from gsplat_mlx.core.spherical_harmonics import (
     _eval_sh_bases_fast,
     spherical_harmonics,

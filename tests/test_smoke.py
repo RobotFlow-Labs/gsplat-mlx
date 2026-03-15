@@ -8,15 +8,11 @@ These tests validate that the environment is correctly configured:
 """
 
 import math
-import sys
-import os
 
 import mlx.core as mx
 import numpy as np
 import pytest
 
-# conftest.py is auto-loaded by pytest but we need direct access to helpers
-sys.path.insert(0, os.path.dirname(__file__))
 from conftest import check_all_close, make_camera_intrinsics, make_gaussians
 
 
