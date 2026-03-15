@@ -39,3 +39,4 @@ htmlcov/
 *.ply
 checkpoints/
 output/
+output/
